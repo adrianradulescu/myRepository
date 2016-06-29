@@ -1,0 +1,151 @@
+// Traditional deglitch filter based on an N-stage shift register.
+// Only when all N stages agree do we update the filtered output.
+// Makes good sense for N between 2 and about 5.  Anything bigger,
+// it's worth using an auxiliary counter (see entity debounce).
+// Note there's one additional FF on the input, because this
+// circuit is likely to be used to resynchronise asynchronous
+// external inputs (e.g. optical or mechanical switches).
+//
+module deglitch
+  #(parameter filter_width = 3)
+   (input      clock,
+    input      raw,
+    output reg filtered);
+
+  // Input shifter.  Stage (0) provides input synchronisation.
+  // Other stages must agree (i.e. input has remained stable)
+  // if the output is to be updated.
+
+  reg [filter_width:0] shifter;
+
+  always @ (posedge clock) begin
+    if (shifter[filter_width:1] == 0) begin
+      filtered <= 0;
+    end // if
+    else if (shifter[filter_width:1] == 1) begin
+      filtered <= 1;
+    end  // else
+    shifter <= { shifter[filter_width-1:0], raw};
+  end // always
+  
+endmodule // deglitch
+
+/////////////////////////////////////////////////////////////////
+// Long debounce filter based on a counter.
+// Only when the input has been stable for N clocks do we
+// update the filtered output.  Works well for large N,
+// hence is suitable for dealing with mechanical switches
+// even in designs with a very fast system clock.
+// Must have synchronous glitch-free input, typically using a
+// deglitch module (see above) to filter very narrow noise spikes.
+/////////////////////////////////////////////////////////////////
+module debounce
+  #(parameter filter_width = 100)
+   (input      clock,
+    input      raw,
+    output reg filtered);
+
+  // Neat recursive function for calulating vector width
+  // required to hold a particular number.
+	function automatic integer btf (input integer N);
+	  if (N==0)
+	    btf = 0;
+	  else
+	    btf = 1 + btf(N/2);
+	endfunction
+
+  // Previous input value, used to determine input stability	
+	reg prev_raw;
+  // Counter that counts down to establish the timeout.
+  // Calculate how wide the counter needs to be,
+  // based on the desired filter width.
+	reg [btf(filter_width)-1 : 0] counter;
+
+  always @ (posedge clock) begin
+    if (raw != prev_raw)
+      // The input just changed.  Reset the timeout.
+      counter <= filter_width;
+    else if (counter != 0)
+      // Input stable, but timer not yet expired.  Keep timing.
+      counter <= counter - 1;
+    else
+      // Input stable, and counter has expired.  Update the output.
+      filtered <= prev_raw;
+    // Keep track of the most recent input.
+    prev_raw = raw;
+  end // always
+
+endmodule // debounce
+
+/////////////////////////////////////////////////////////////////
+// Fairly noddy testbench to show behaviour.
+/////////////////////////////////////////////////////////////////
+
+module switchcleaner_tb;
+
+parameter glitch_limit = 3;
+parameter bounce_limit = 150;
+
+reg raw;
+integer i, j;
+integer seed = 42;
+time period = 10;
+reg clock;
+
+deglitch #(.filter_width(glitch_limit)) deglitch_i (
+          .clock(clock),
+          .raw(raw),
+          .filtered(deglitched)
+          );
+
+debounce #(.filter_width(bounce_limit)) debounce_i (
+        .clock(clock),
+        .raw(deglitched),
+        .filtered(debounced)
+        );
+
+  task automatic glitch (input time max_width);
+    begin
+      raw = !raw;
+      #((max_width * $dist_uniform(seed,1,100)) / 100);
+      raw = !raw;
+      #((max_width * $dist_uniform(seed,1,100)) / 100);
+    end
+  endtask;
+
+initial begin : clockgen
+  clock = 0;
+  forever #period clock = !clock;
+end
+        
+initial begin : stimulus
+    raw = 0;
+    // Allow the output to settle to 0
+    #(2*bounce_limit*period);
+
+    // Test glitch immunity
+    for (i=1; i<11; i=i+1) begin
+      for (j=1; j<11; j=j+1) begin
+        glitch(i * period * glitch_limit / 5);
+      end
+    end
+
+    #(bounce_limit * period);
+
+    // Toggle the switch a few times
+    for (j=0; j<4;j=j+1) begin
+      for (i=0; i<10;i=i+1) begin
+        raw = !raw;
+        #((bounce_limit * i * period) / 10)
+        raw = !raw;
+        #(bounce_limit * period);
+      end
+      raw = !raw;
+      #(2 * bounce_limit * period);
+    end
+
+    // TAF
+    $stop;
+end
+
+endmodule
