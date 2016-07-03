@@ -1,0 +1,40 @@
+task send_valid_packet;
+	input [7:0] op_code;
+	input parity_check_bit;
+		begin
+					clk = 1;
+					data = 1;
+			#10	clk = 0;
+					data = 0;
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[7];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[6];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[5];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[4];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[3];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[2];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[1];
+			#10	clk = 1;
+			#10	clk = 0;
+					data = op_code[0];		
+			#10	clk = 1;
+			#10	clk = 0;
+					data = parity_check_bit;
+			#10	clk = 1;
+			#10	clk = 0;
+					data = 1;
+		end
+endtask 
